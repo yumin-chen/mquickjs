@@ -34,19 +34,51 @@
 #include <sys/time.h>
 #include <math.h>
 #include <fcntl.h>
+#include <unistd.h>
 
 #include "cutils.h"
+#ifndef MQJS_RUNTIME_ONLY
 #include "readline_tty.h"
+#endif
 #include "mquickjs.h"
+#include "mqjs_runtime.h"
 
-static uint8_t *load_file(const char *filename, int *plen);
-static void dump_error(JSContext *ctx);
+uint8_t *load_file(const char *filename, int *plen)
+{
+    FILE *f;
+    uint8_t *buf;
+    int buf_len;
 
-static JSValue js_print(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+    f = fopen(filename, "rb");
+    if (!f) {
+        perror(filename);
+        exit(1);
+    }
+    fseek(f, 0, SEEK_END);
+    buf_len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    buf = malloc(buf_len + 1);
+    if (!buf) {
+        fclose(f);
+        return NULL;
+    }
+    if (fread(buf, 1, buf_len, f) != (size_t)buf_len) {
+        free(buf);
+        fclose(f);
+        return NULL;
+    }
+    buf[buf_len] = '\0';
+    fclose(f);
+    if (plen)
+        *plen = buf_len;
+    return buf;
+}
+
+JSValue js_print(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     int i;
     JSValue v;
-    
+
     for(i = 0; i < argc; i++) {
         if (i != 0)
             putchar(' ');
@@ -65,7 +97,7 @@ static JSValue js_print(JSContext *ctx, JSValue *this_val, int argc, JSValue *ar
     return JS_UNDEFINED;
 }
 
-static JSValue js_gc(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_gc(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     JS_GC(ctx);
     return JS_UNDEFINED;
@@ -87,31 +119,33 @@ static int64_t get_time_ms(void)
 }
 #endif
 
-static JSValue js_date_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_date_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return JS_NewInt64(ctx, (int64_t)tv.tv_sec * 1000 + (tv.tv_usec / 1000));
 }
 
-static JSValue js_performance_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_performance_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     return JS_NewInt64(ctx, get_time_ms());
 }
 
 /* load a script */
-static JSValue js_load(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_load(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     const char *filename;
     JSCStringBuf buf_str;
     uint8_t *buf;
     int buf_len;
     JSValue ret;
-    
+
     filename = JS_ToCString(ctx, argv[0], &buf_str);
     if (!filename)
         return JS_EXCEPTION;
     buf = load_file(filename, &buf_len);
+    if (!buf)
+        return JS_ThrowInternalError(ctx, "could not load file");
 
     ret = JS_Eval(ctx, (const char *)buf, buf_len, filename, 0);
     free(buf);
@@ -119,22 +153,14 @@ static JSValue js_load(JSContext *ctx, JSValue *this_val, int argc, JSValue *arg
 }
 
 /* timers */
-typedef struct {
-    BOOL allocated;
-    JSGCRef func;
-    int64_t timeout; /* in ms */
-} JSTimer;
-
-#define MAX_TIMERS 16
-
 static JSTimer js_timer_list[MAX_TIMERS];
 
-static JSValue js_setTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_setTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     JSTimer *th;
     int delay, i;
     JSValue *pfunc;
-    
+
     if (!JS_IsFunction(ctx, argv[0]))
         return JS_ThrowTypeError(ctx, "not a function");
     if (JS_ToInt32(ctx, &delay, argv[1]))
@@ -152,7 +178,7 @@ static JSValue js_setTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValu
     return JS_ThrowInternalError(ctx, "too many timers");
 }
 
-static JSValue js_clearTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_clearTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     int timer_id;
     JSTimer *th;
@@ -169,7 +195,7 @@ static JSValue js_clearTimeout(JSContext *ctx, JSValue *this_val, int argc, JSVa
     return JS_UNDEFINED;
 }
 
-static void run_timers(JSContext *ctx)
+void run_timers(JSContext *ctx)
 {
     int64_t min_delay, delay, cur_time;
     BOOL has_timer;
@@ -193,14 +219,14 @@ static void run_timers(JSContext *ctx)
                         goto fail;
                     JS_PushArg(ctx, th->func.val); /* func name */
                     JS_PushArg(ctx, JS_NULL); /* this */
-                    
+
                     JS_DeleteGCRef(ctx, &th->func);
                     th->allocated = FALSE;
-                    
+
                     ret = JS_Call(ctx, 0);
                     if (JS_IsException(ret)) {
                     fail:
-                        dump_error(ctx);
+                        /* Error message should be dumped by the caller if needed */
                         exit(1);
                     }
                     min_delay = 0;
@@ -220,6 +246,8 @@ static void run_timers(JSContext *ctx)
     }
 }
 
+#ifndef MQJS_RUNTIME_ONLY
+
 #include "mqjs_stdlib.h"
 
 #define STYLE_DEFAULT    COLOR_BRIGHT_GREEN
@@ -235,28 +263,6 @@ static void run_timers(JSContext *ctx)
 #define STYLE_RESULT     COLOR_BRIGHT_WHITE
 #define STYLE_ERROR_MSG  COLOR_BRIGHT_RED
 
-static uint8_t *load_file(const char *filename, int *plen)
-{
-    FILE *f;
-    uint8_t *buf;
-    int buf_len;
-
-    f = fopen(filename, "rb");
-    if (!f) {
-        perror(filename);
-        exit(1);
-    }
-    fseek(f, 0, SEEK_END);
-    buf_len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    buf = malloc(buf_len + 1);
-    fread(buf, 1, buf_len, f);
-    buf[buf_len] = '\0';
-    fclose(f);
-    if (plen)
-        *plen = buf_len;
-    return buf;
-}
 
 static int js_log_err_flag;
 
@@ -772,3 +778,4 @@ int main(int argc, const char **argv)
     free(mem_buf);
     return 1;
 }
+#endif /* !MQJS_RUNTIME_ONLY */

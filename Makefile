@@ -75,16 +75,26 @@ ifdef CONFIG_ARM32
 MQJS_BUILD_FLAGS=-m32
 endif
 
-PROGS=mqjs$(EXE) example$(EXE)
+PROGS=mqjs$(EXE) mqjsc$(EXE) example$(EXE)
 TEST_PROGS=dtoa_test libm_test 
 
 all: $(PROGS)
 
-MQJS_OBJS=mqjs.o readline_tty.o readline.o mquickjs.o dtoa.o libm.o cutils.o
+MQJS_OBJS=mqjs.o readline_tty.o readline.o mqjs_runtime.o mquickjs.o dtoa.o libm.o cutils.o
+MQUICKJS_LIB_OBJS=mquickjs.o mqjs_runtime.o dtoa.o libm.o cutils.o
 LIBS=-lm
 
-mqjs$(EXE): $(MQJS_OBJS)
+mqjs$(EXE): mqjs.o readline_tty.o readline.o libmquickjs.a
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+mqjsc$(EXE): mqjsc.o libmquickjs.a
+	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+mqjs_runtime.o: mqjs.c
+	$(CC) $(CFLAGS) -DMQJS_RUNTIME_ONLY -c -o $@ $<
+
+libmquickjs.a: $(MQUICKJS_LIB_OBJS)
+	$(AR) rcs $@ $^
 
 mquickjs.o: mquickjs_atom.h
 
@@ -98,11 +108,12 @@ mqjs_stdlib.h: mqjs_stdlib
 	./mqjs_stdlib $(MQJS_BUILD_FLAGS) > $@
 
 mqjs.o: mqjs_stdlib.h
+mqjsc.o: mqjs_stdlib.h
 
 # C API example
 example.o: example_stdlib.h
 
-example$(EXE): example.o mquickjs.o dtoa.o libm.o cutils.o
+example$(EXE): example.o libmquickjs.a
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 example_stdlib: example_stdlib.host.o mquickjs_build.host.o
@@ -117,7 +128,7 @@ example_stdlib.h: example_stdlib
 %.host.o: %.c
 	$(HOST_CC) $(HOST_CFLAGS) -c -o $@ $<
 
-test: mqjs example
+test: mqjs mqjsc example
 	./mqjs tests/test_closure.js
 	./mqjs tests/test_language.js
 	./mqjs tests/test_loop.js
@@ -127,6 +138,10 @@ test: mqjs example
 #	@sha256sum -c test_builtin.sha256
 	./mqjs -b test_builtin.bin
 	./example tests/test_rect.js
+# test standalone compiler
+	./mqjsc -o test_standalone tests/test_builtin.js
+	./test_standalone
+	rm -f test_standalone
 
 microbench: mqjs
 	./mqjs tests/microbench.js
@@ -147,6 +162,6 @@ rempio2_test: tests/rempio2_test.o libm.o
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 clean:
-	rm -f *.o *.d *~ tests/*.o tests/*.d tests/*~ test_builtin.bin mqjs_stdlib mqjs_stdlib.h mquickjs_build_atoms mquickjs_atom.h mqjs_example example_stdlib example_stdlib.h $(PROGS) $(TEST_PROGS)
+	rm -f *.o *.a *.d *~ tests/*.o tests/*.d tests/*~ test_builtin.bin mqjs_stdlib mqjs_stdlib.h mquickjs_build_atoms mquickjs_atom.h mqjs_example example_stdlib example_stdlib.h $(PROGS) $(TEST_PROGS)
 
 -include $(wildcard *.d)
