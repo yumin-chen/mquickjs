@@ -75,15 +75,18 @@ ifdef CONFIG_ARM32
 MQJS_BUILD_FLAGS=-m32
 endif
 
-PROGS=mqjs$(EXE) example$(EXE)
+PROGS=mqjs$(EXE) mqjsc$(EXE) example$(EXE)
 TEST_PROGS=dtoa_test libm_test 
 
 all: $(PROGS)
 
-MQJS_OBJS=mqjs.o readline_tty.o readline.o mquickjs.o dtoa.o libm.o cutils.o
+MQJS_OBJS=mqjs.o mqjs_runtime.o readline_tty.o readline.o mquickjs.o dtoa.o libm.o cutils.o
 LIBS=-lm
 
 mqjs$(EXE): $(MQJS_OBJS)
+	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+mqjsc$(EXE): mqjsc.o mqjs_runtime.o mquickjs.o dtoa.o libm.o cutils.o
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 mquickjs.o: mquickjs_atom.h
@@ -98,6 +101,8 @@ mqjs_stdlib.h: mqjs_stdlib
 	./mqjs_stdlib $(MQJS_BUILD_FLAGS) > $@
 
 mqjs.o: mqjs_stdlib.h
+mqjsc.o: mqjs_stdlib.h
+mqjs_runtime.o: mqjs_runtime.h
 
 # C API example
 example.o: example_stdlib.h
@@ -117,7 +122,7 @@ example_stdlib.h: example_stdlib
 %.host.o: %.c
 	$(HOST_CC) $(HOST_CFLAGS) -c -o $@ $<
 
-test: mqjs example
+test: mqjs example mqjsc
 	./mqjs tests/test_closure.js
 	./mqjs tests/test_language.js
 	./mqjs tests/test_loop.js
@@ -127,6 +132,9 @@ test: mqjs example
 #	@sha256sum -c test_builtin.sha256
 	./mqjs -b test_builtin.bin
 	./example tests/test_rect.js
+	./mqjsc -o test_hello tests/test_builtin.js
+	./test_hello
+	rm -f test_hello
 
 microbench: mqjs
 	./mqjs tests/microbench.js
@@ -147,6 +155,6 @@ rempio2_test: tests/rempio2_test.o libm.o
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 clean:
-	rm -f *.o *.d *~ tests/*.o tests/*.d tests/*~ test_builtin.bin mqjs_stdlib mqjs_stdlib.h mquickjs_build_atoms mquickjs_atom.h mqjs_example example_stdlib example_stdlib.h $(PROGS) $(TEST_PROGS)
+	rm -f *.o *.d *~ tests/*.o tests/*.d tests/*~ test_builtin.bin mqjs_stdlib mqjs_stdlib.h mquickjs_build_atoms mquickjs_atom.h mqjs_example example_stdlib example_stdlib.h $(PROGS) $(TEST_PROGS) a.out
 
 -include $(wildcard *.d)
