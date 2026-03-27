@@ -123,7 +123,7 @@ example_stdlib.h: example_stdlib
 %.host.o: %.c
 	$(HOST_CC) $(HOST_CFLAGS) -c -o $@ $<
 
-test: mqjs example
+test: mqjs example mqjsc
 	./mqjs tests/test_closure.js
 	./mqjs tests/test_language.js
 	./mqjs tests/test_loop.js
@@ -133,6 +133,8 @@ test: mqjs example
 #	@sha256sum -c test_builtin.sha256
 	./mqjs -b test_builtin.bin
 	./example tests/test_rect.js
+# test mqjsc compiler
+	./tests/test_mqjsc.sh
 
 microbench: mqjs
 	./mqjs tests/microbench.js
