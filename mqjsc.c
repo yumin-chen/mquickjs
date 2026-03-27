@@ -68,6 +68,65 @@ static void output_c(FILE *f, const char *c_name, const uint8_t *buf, int len)
     fprintf(f, "const uint32_t %s_len = %d;\n\n", c_name, len);
 }
 
+static const char main_c_template[] =
+    "#include <stdlib.h>\n"
+    "#include <stdio.h>\n"
+    "#include <string.h>\n"
+    "#include <inttypes.h>\n"
+    "#include <sys/time.h>\n"
+    "#include \"mquickjs.h\"\n"
+    "#include \"mqjs_runtime.h\"\n"
+    "#include \"mqjs_stdlib.h\"\n"
+    "\n"
+    "static uint8_t mem_buf[%zu];\n"
+    "\n"
+    "int main(int argc, const char **argv) {\n"
+    "    JSContext *ctx;\n"
+    "    JSValue val, arr, obj;\n"
+    "    JSGCRef val_ref, arr_ref;\n"
+    "    uint8_t *buf;\n"
+    "    int i;\n"
+    "    ctx = JS_NewContext(mem_buf, sizeof(mem_buf), &js_stdlib);\n"
+    "    JS_SetLogFunc(ctx, js_log_func);\n"
+    "    {\n"
+    "        struct timeval tv;\n"
+    "        gettimeofday(&tv, NULL);\n"
+    "        JS_SetRandomSeed(ctx, ((uint64_t)tv.tv_sec << 32) ^ tv.tv_usec);\n"
+    "    }\n"
+    "    buf = malloc(bytecode_data_len + bytecode_payload_len);\n"
+    "    memcpy(buf, bytecode_data, bytecode_data_len);\n"
+    "    memcpy(buf + bytecode_data_len, bytecode_payload, bytecode_payload_len);\n"
+    "    if (JS_RelocateBytecode(ctx, buf, bytecode_data_len + bytecode_payload_len)) {\n"
+    "        fprintf(stderr, \"Could not relocate bytecode\\n\");\n"
+    "        exit(1);\n"
+    "    }\n"
+    "    val = JS_LoadBytecode(ctx, buf);\n"
+    "    if (JS_IsException(val)) {\n"
+    "        dump_error(ctx);\n"
+    "        exit(1);\n"
+    "    }\n"
+    "    if (argc > 1) {\n"
+    "        JS_PUSH_VALUE(ctx, val);\n"
+    "        arr = JS_NewArray(ctx, argc - 1);\n"
+    "        JS_PUSH_VALUE(ctx, arr);\n"
+    "        for(i = 1; i < argc; i++) {\n"
+    "            JS_SetPropertyUint32(ctx, arr, i - 1, JS_NewString(ctx, argv[i]));\n"
+    "        }\n"
+    "        JS_POP_VALUE(ctx, arr);\n"
+    "        obj = JS_GetGlobalObject(ctx);\n"
+    "        JS_SetPropertyStr(ctx, obj, \"scriptArgs\", arr);\n"
+    "        JS_POP_VALUE(ctx, val);\n"
+    "    }\n"
+    "    val = JS_Run(ctx, val);\n"
+    "    if (JS_IsException(val)) {\n"
+    "        dump_error(ctx);\n"
+    "        exit(1);\n"
+    "    }\n"
+    "    run_timers(ctx);\n"
+    "    JS_FreeContext(ctx);\n"
+    "    return 0;\n"
+    "}\n";
+
 int main(int argc, const char **argv)
 {
     int optind;
@@ -206,65 +265,11 @@ int main(int argc, const char **argv)
         exit(1);
     }
 
-    fprintf(f, "#include <stdlib.h>\n");
-    fprintf(f, "#include <stdio.h>\n");
-    fprintf(f, "#include <string.h>\n");
-    fprintf(f, "#include <inttypes.h>\n");
-    fprintf(f, "#include <sys/time.h>\n");
-    fprintf(f, "#include \"mquickjs.h\"\n");
-    fprintf(f, "#include \"mqjs_runtime.h\"\n");
-    fprintf(f, "#include \"mqjs_stdlib.h\"\n\n");
-
+    fprintf(f, "#include <inttypes.h>\n\n");
     output_c(f, "bytecode_data", (uint8_t *)&hdr_buf, hdr_len);
     output_c(f, "bytecode_payload", data_buf, data_len);
 
-    fprintf(f, "static uint8_t mem_buf[%zu];\n\n", mem_size);
-    fprintf(f, "int main(int argc, const char **argv) {\n");
-    fprintf(f, "    JSContext *ctx;\n");
-    fprintf(f, "    JSValue val, arr, obj;\n");
-    fprintf(f, "    JSGCRef val_ref, arr_ref;\n");
-    fprintf(f, "    uint8_t *buf;\n");
-    fprintf(f, "    int i;\n");
-    fprintf(f, "    ctx = JS_NewContext(mem_buf, sizeof(mem_buf), &js_stdlib);\n");
-    fprintf(f, "    JS_SetLogFunc(ctx, js_log_func);\n");
-    fprintf(f, "    {\n");
-    fprintf(f, "        struct timeval tv;\n");
-    fprintf(f, "        gettimeofday(&tv, NULL);\n");
-    fprintf(f, "        JS_SetRandomSeed(ctx, ((uint64_t)tv.tv_sec << 32) ^ tv.tv_usec);\n");
-    fprintf(f, "    }\n");
-    fprintf(f, "    buf = malloc(bytecode_data_len + bytecode_payload_len);\n");
-    fprintf(f, "    memcpy(buf, bytecode_data, bytecode_data_len);\n");
-    fprintf(f, "    memcpy(buf + bytecode_data_len, bytecode_payload, bytecode_payload_len);\n");
-    fprintf(f, "    if (JS_RelocateBytecode(ctx, buf, bytecode_data_len + bytecode_payload_len)) {\n");
-    fprintf(f, "        fprintf(stderr, \"Could not relocate bytecode\\n\");\n");
-    fprintf(f, "        exit(1);\n");
-    fprintf(f, "    }\n");
-    fprintf(f, "    val = JS_LoadBytecode(ctx, buf);\n");
-    fprintf(f, "    if (JS_IsException(val)) {\n");
-    fprintf(f, "        dump_error(ctx);\n");
-    fprintf(f, "        exit(1);\n");
-    fprintf(f, "    }\n");
-    fprintf(f, "    if (argc > 1) {\n");
-    fprintf(f, "        JS_PUSH_VALUE(ctx, val);\n");
-    fprintf(f, "        arr = JS_NewArray(ctx, argc - 1);\n");
-    fprintf(f, "        JS_PUSH_VALUE(ctx, arr);\n");
-    fprintf(f, "        for(i = 1; i < argc; i++) {\n");
-    fprintf(f, "            JS_SetPropertyUint32(ctx, arr, i - 1, JS_NewString(ctx, argv[i]));\n");
-    fprintf(f, "        }\n");
-    fprintf(f, "        JS_POP_VALUE(ctx, arr);\n");
-    fprintf(f, "        obj = JS_GetGlobalObject(ctx);\n");
-    fprintf(f, "        JS_SetPropertyStr(ctx, obj, \"scriptArgs\", arr);\n");
-    fprintf(f, "        JS_POP_VALUE(ctx, val);\n");
-    fprintf(f, "    }\n");
-    fprintf(f, "    val = JS_Run(ctx, val);\n");
-    fprintf(f, "    if (JS_IsException(val)) {\n");
-    fprintf(f, "        dump_error(ctx);\n");
-    fprintf(f, "        exit(1);\n");
-    fprintf(f, "    }\n");
-    fprintf(f, "    run_timers(ctx);\n");
-    fprintf(f, "    JS_FreeContext(ctx);\n");
-    fprintf(f, "    return 0;\n");
-    fprintf(f, "}\n");
+    fprintf(f, main_c_template, mem_size);
 
     fclose(f);
 
