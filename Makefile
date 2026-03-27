@@ -82,7 +82,7 @@ LIB=libmquickjs.a
 all: $(LIB) $(PROGS)
 
 LIB_OBJS=mquickjs.o dtoa.o libm.o cutils.o mqjs_runtime.o readline.o readline_tty.o
-MQJS_OBJS=mqjs.o
+MQJS_OBJS=mqjs.repl.o
 LIBS=-lm
 
 $(LIB): $(LIB_OBJS)
@@ -105,7 +105,11 @@ mquickjs_atom.h: mqjs_stdlib
 mqjs_stdlib.h: mqjs_stdlib
 	./mqjs_stdlib $(MQJS_BUILD_FLAGS) > $@
 
-mqjs.o: mqjs_stdlib.h
+mqjs.repl.o: mqjs.c mqjs_stdlib.h
+	$(CC) $(CFLAGS) -DCONFIG_MQJS_REPL -c -o $@ mqjs.c
+
+mqjs_runtime.o: mqjs.c
+	$(CC) $(CFLAGS) -c -o $@ mqjs.c
 
 # C API example
 example.o: example_stdlib.h
@@ -125,7 +129,7 @@ example_stdlib.h: example_stdlib
 %.host.o: %.c
 	$(HOST_CC) $(HOST_CFLAGS) -c -o $@ $<
 
-test: mqjs example
+test: mqjs example mqjsc
 	./mqjs tests/test_closure.js
 	./mqjs tests/test_language.js
 	./mqjs tests/test_loop.js
@@ -135,6 +139,7 @@ test: mqjs example
 #	@sha256sum -c test_builtin.sha256
 	./mqjs -b test_builtin.bin
 	./example tests/test_rect.js
+	./tests/test_mqjsc.sh
 
 microbench: mqjs
 	./mqjs tests/microbench.js

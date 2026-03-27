@@ -33,7 +33,7 @@
 
 #include "cutils.h"
 #include "mquickjs.h"
-#include "mqjs_runtime.h"
+#include "mqjs.h"
 #include "mqjs_stdlib.h"
 
 static void help(void)
@@ -47,69 +47,76 @@ static void help(void)
     exit(1);
 }
 
+static const char main_c_template1[] =
+    "#include <stdlib.h>\n"
+    "#include <stdio.h>\n"
+    "#include <inttypes.h>\n"
+    "#include <string.h>\n"
+    "#include \"mquickjs.h\"\n"
+    "#include \"mqjs.h\"\n"
+    "#include \"mqjs_stdlib.h\"\n"
+    "\n"
+    "static uint8_t bc_data[] = {\n";
+
+static const char main_c_template2[] =
+    "};\n"
+    "\n"
+    "int main(int argc, const char **argv)\n"
+    "{\n"
+    "    size_t mem_size = 16 << 20;\n"
+    "    uint8_t *mem_buf = malloc(mem_size);\n"
+    "    JSContext *ctx = JS_NewContext(mem_buf, mem_size, &js_stdlib);\n"
+    "    JS_SetLogFunc(ctx, js_log_func);\n"
+    "    JSValue val;\n"
+    "    JSGCRef val_ref;\n"
+    "    if (JS_RelocateBytecode(ctx, (uint8_t *)bc_data, sizeof(bc_data))) {\n"
+    "        fprintf(stderr, \"Could not relocate bytecode\\n\");\n"
+    "        return 1;\n"
+    "    }\n"
+    "    val = JS_LoadBytecode(ctx, bc_data);\n"
+    "    if (JS_IsException(val)) {\n"
+    "        dump_error(ctx);\n"
+    "        return 1;\n"
+    "    }\n"
+    "    JS_PUSH_VALUE(ctx, val);\n"
+    "    if (argc > 1) {\n"
+    "        JSValue obj, arr;\n"
+    "        JSGCRef arr_ref;\n"
+    "        int i;\n"
+    "        arr = JS_NewArray(ctx, argc - 1);\n"
+    "        JS_AddGCRef(ctx, &arr_ref);\n"
+    "        arr_ref.val = arr;\n"
+    "        for(i = 1; i < argc; i++) {\n"
+    "            JS_SetPropertyUint32(ctx, arr_ref.val, i - 1,\n"
+    "                                 JS_NewString(ctx, argv[i]));\n"
+    "        }\n"
+    "        obj = JS_GetGlobalObject(ctx);\n"
+    "        JS_SetPropertyStr(ctx, obj, \"scriptArgs\", arr_ref.val);\n"
+    "        JS_DeleteGCRef(ctx, &arr_ref);\n"
+    "    }\n"
+    "    val = JS_Run(ctx, val_ref.val);\n"
+    "    if (JS_IsException(val)) {\n"
+    "        dump_error(ctx);\n"
+    "        return 1;\n"
+    "    }\n"
+    "    run_timers(ctx);\n"
+    "    JS_POP_VALUE(ctx, val);\n"
+    "    JS_FreeContext(ctx);\n"
+    "    free(mem_buf);\n"
+    "    return 0;\n"
+    "}\n";
+
 static void output_c_wrapper(FILE *f, const uint8_t *bc_buf, uint32_t bc_len)
 {
     uint32_t i;
 
-    fprintf(f, "#include <stdlib.h>\n");
-    fprintf(f, "#include <stdio.h>\n");
-    fprintf(f, "#include <inttypes.h>\n");
-    fprintf(f, "#include <string.h>\n");
-    fprintf(f, "#include \"mquickjs.h\"\n");
-    fprintf(f, "#include \"mqjs_runtime.h\"\n");
-    fprintf(f, "#include \"mqjs_stdlib.h\"\n\n");
-
-    fprintf(f, "static uint8_t bc_data[] = {\n");
+    fputs(main_c_template1, f);
     for(i = 0; i < bc_len; i++) {
         fprintf(f, " 0x%02x,", bc_buf[i]);
         if ((i % 16) == 15)
             fprintf(f, "\n");
     }
-    fprintf(f, "\n};\n\n");
-
-    fprintf(f, "int main(int argc, const char **argv)\n");
-    fprintf(f, "{\n");
-    fprintf(f, "    size_t mem_size = 16 << 20;\n");
-    fprintf(f, "    uint8_t *mem_buf = malloc(mem_size);\n");
-    fprintf(f, "    JSContext *ctx = JS_NewContext(mem_buf, mem_size, &js_stdlib);\n");
-    fprintf(f, "    JS_SetLogFunc(ctx, js_log_func);\n");
-    fprintf(f, "    JSValue val;\n");
-    fprintf(f, "    JSGCRef val_ref;\n");
-    fprintf(f, "    if (JS_RelocateBytecode(ctx, (uint8_t *)bc_data, sizeof(bc_data))) {\n");
-    fprintf(f, "        fprintf(stderr, \"Could not relocate bytecode\\n\");\n");
-    fprintf(f, "        return 1;\n");
-    fprintf(f, "    }\n");
-    fprintf(f, "    val = JS_LoadBytecode(ctx, bc_data);\n");
-    fprintf(f, "    if (JS_IsException(val)) {\n");
-    fprintf(f, "        dump_error(ctx);\n");
-    fprintf(f, "        return 1;\n");
-    fprintf(f, "    }\n");
-    fprintf(f, "    JS_PUSH_VALUE(ctx, val);\n");
-    fprintf(f, "    if (argc > 1) {\n");
-    fprintf(f, "        JSValue obj, arr;\n");
-    fprintf(f, "        JSGCRef arr_ref;\n");
-    fprintf(f, "        int i;\n");
-    fprintf(f, "        arr = JS_NewArray(ctx, argc - 1);\n");
-    fprintf(f, "        JS_PUSH_VALUE(ctx, arr);\n");
-    fprintf(f, "        for(i = 1; i < argc; i++) {\n");
-    fprintf(f, "            JS_SetPropertyUint32(ctx, arr_ref.val, i - 1,\n");
-    fprintf(f, "                                 JS_NewString(ctx, argv[i]));\n");
-    fprintf(f, "        }\n");
-    fprintf(f, "        JS_POP_VALUE(ctx, arr);\n");
-    fprintf(f, "        obj = JS_GetGlobalObject(ctx);\n");
-    fprintf(f, "        JS_SetPropertyStr(ctx, obj, \"scriptArgs\", arr);\n");
-    fprintf(f, "    }\n");
-    fprintf(f, "    val = JS_Run(ctx, val_ref.val);\n");
-    fprintf(f, "    if (JS_IsException(val)) {\n");
-    fprintf(f, "        dump_error(ctx);\n");
-    fprintf(f, "        return 1;\n");
-    fprintf(f, "    }\n");
-    fprintf(f, "    run_timers(ctx);\n");
-    fprintf(f, "    JS_POP_VALUE(ctx, val);\n");
-    fprintf(f, "    JS_FreeContext(ctx);\n");
-    fprintf(f, "    free(mem_buf);\n");
-    fprintf(f, "    return 0;\n");
-    fprintf(f, "}\n");
+    fputs(main_c_template2, f);
 }
 
 int main(int argc, char **argv)
@@ -216,7 +223,9 @@ int main(int argc, char **argv)
         fclose(f);
 
         char cmd[2048];
-        snprintf(cmd, sizeof(cmd), "gcc -O2 -o %s %s libmquickjs.a -lm", out_filename, c_filename);
+        char *path = getcwd(NULL, 0);
+        snprintf(cmd, sizeof(cmd), "gcc -O2 -I%s -o %s %s %s/libmquickjs.a -lm", path, out_filename, c_filename, path);
+        free(path);
         // printf("%s\n", cmd);
         if (system(cmd) != 0) {
             fprintf(stderr, "Compilation failed\n");

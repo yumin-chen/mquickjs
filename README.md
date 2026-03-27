@@ -64,6 +64,27 @@ system.
 Use the option `--no-column` to remove the column number debug info
 (only line numbers are remaining) if you want to save some storage.
 
+## Compiler
+
+The compiler is `mqjsc`. It can produce a standalone C program binary
+executable that embeds the MicroQuickJS engine along with the
+compiled bytecode. Usage:
+
+```
+usage: mqjsc [options] [file]
+-h  --help            list options
+-o FILE               set the output filename (default = a.out)
+-c                    only output C source file
+-m32                  force 32 bit bytecode output
+```
+
+Example:
+
+```sh
+./mqjsc -o my_prog examples/mqjsc_example.js
+./my_prog arg1 arg2
+```
+
 ## Stricter mode
 
 MQuickJS only supports a subset of JavaScript (mostly ES5). It is

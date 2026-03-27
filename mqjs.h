@@ -1,5 +1,5 @@
 /*
- * Micro QuickJS runtime header
+ * Micro QuickJS shared runtime header
  *
  * Copyright (c) 2017-2025 Fabrice Bellard
  * Copyright (c) 2017-2025 Charlie Gordon
@@ -22,8 +22,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-#ifndef MQJS_RUNTIME_H
-#define MQJS_RUNTIME_H
+#ifndef MQJS_H
+#define MQJS_H
 
 #include "cutils.h"
 #include "mquickjs.h"
@@ -62,4 +62,4 @@ void dump_error(JSContext *ctx);
 #define STYLE_RESULT     COLOR_BRIGHT_WHITE
 #define STYLE_ERROR_MSG  COLOR_BRIGHT_RED
 
-#endif /* MQJS_RUNTIME_H */
+#endif /* MQJS_H */
