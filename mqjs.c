@@ -1,5 +1,5 @@
 /*
- * Micro QuickJS REPL
+ * Micro QuickJS runtime functions
  *
  * Copyright (c) 2017-2025 Fabrice Bellard
  * Copyright (c) 2017-2025 Charlie Gordon
@@ -38,15 +38,44 @@
 #include "cutils.h"
 #include "readline_tty.h"
 #include "mquickjs.h"
+#include "mqjs.h"
 
-static uint8_t *load_file(const char *filename, int *plen);
-static void dump_error(JSContext *ctx);
+uint8_t *load_file(const char *filename, int *plen)
+{
+    FILE *f;
+    uint8_t *buf;
+    int buf_len;
 
-static JSValue js_print(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+    f = fopen(filename, "rb");
+    if (!f) {
+        perror(filename);
+        exit(1);
+    }
+    fseek(f, 0, SEEK_END);
+    buf_len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    buf = malloc(buf_len + 1);
+    if (!buf) {
+        fclose(f);
+        return NULL;
+    }
+    if (fread(buf, 1, buf_len, f) != buf_len) {
+        free(buf);
+        fclose(f);
+        return NULL;
+    }
+    buf[buf_len] = '\0';
+    fclose(f);
+    if (plen)
+        *plen = buf_len;
+    return buf;
+}
+
+JSValue js_print(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     int i;
     JSValue v;
-    
+
     for(i = 0; i < argc; i++) {
         if (i != 0)
             putchar(' ');
@@ -65,21 +94,21 @@ static JSValue js_print(JSContext *ctx, JSValue *this_val, int argc, JSValue *ar
     return JS_UNDEFINED;
 }
 
-static JSValue js_gc(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_gc(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     JS_GC(ctx);
     return JS_UNDEFINED;
 }
 
 #if defined(__linux__) || defined(__APPLE__)
-static int64_t get_time_ms(void)
+int64_t get_time_ms(void)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000 + (ts.tv_nsec / 1000000);
 }
 #else
-static int64_t get_time_ms(void)
+int64_t get_time_ms(void)
 {
     struct timeval tv;
     gettimeofday(&tv, NULL);
@@ -87,27 +116,27 @@ static int64_t get_time_ms(void)
 }
 #endif
 
-static JSValue js_date_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_date_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return JS_NewInt64(ctx, (int64_t)tv.tv_sec * 1000 + (tv.tv_usec / 1000));
 }
 
-static JSValue js_performance_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_performance_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     return JS_NewInt64(ctx, get_time_ms());
 }
 
 /* load a script */
-static JSValue js_load(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_load(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     const char *filename;
     JSCStringBuf buf_str;
     uint8_t *buf;
     int buf_len;
     JSValue ret;
-    
+
     filename = JS_ToCString(ctx, argv[0], &buf_str);
     if (!filename)
         return JS_EXCEPTION;
@@ -118,23 +147,14 @@ static JSValue js_load(JSContext *ctx, JSValue *this_val, int argc, JSValue *arg
     return ret;
 }
 
-/* timers */
-typedef struct {
-    BOOL allocated;
-    JSGCRef func;
-    int64_t timeout; /* in ms */
-} JSTimer;
-
-#define MAX_TIMERS 16
-
 static JSTimer js_timer_list[MAX_TIMERS];
 
-static JSValue js_setTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_setTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     JSTimer *th;
     int delay, i;
     JSValue *pfunc;
-    
+
     if (!JS_IsFunction(ctx, argv[0]))
         return JS_ThrowTypeError(ctx, "not a function");
     if (JS_ToInt32(ctx, &delay, argv[1]))
@@ -152,7 +172,7 @@ static JSValue js_setTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValu
     return JS_ThrowInternalError(ctx, "too many timers");
 }
 
-static JSValue js_clearTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_clearTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     int timer_id;
     JSTimer *th;
@@ -169,7 +189,7 @@ static JSValue js_clearTimeout(JSContext *ctx, JSValue *this_val, int argc, JSVa
     return JS_UNDEFINED;
 }
 
-static void run_timers(JSContext *ctx)
+void run_timers(JSContext *ctx)
 {
     int64_t min_delay, delay, cur_time;
     BOOL has_timer;
@@ -193,10 +213,10 @@ static void run_timers(JSContext *ctx)
                         goto fail;
                     JS_PushArg(ctx, th->func.val); /* func name */
                     JS_PushArg(ctx, JS_NULL); /* this */
-                    
+
                     JS_DeleteGCRef(ctx, &th->func);
                     th->allocated = FALSE;
-                    
+
                     ret = JS_Call(ctx, 0);
                     if (JS_IsException(ret)) {
                     fail:
@@ -220,52 +240,14 @@ static void run_timers(JSContext *ctx)
     }
 }
 
-#include "mqjs_stdlib.h"
-
-#define STYLE_DEFAULT    COLOR_BRIGHT_GREEN
-#define STYLE_COMMENT    COLOR_WHITE
-#define STYLE_STRING     COLOR_BRIGHT_CYAN
-#define STYLE_REGEX      COLOR_CYAN
-#define STYLE_NUMBER     COLOR_GREEN
-#define STYLE_KEYWORD    COLOR_BRIGHT_WHITE
-#define STYLE_FUNCTION   COLOR_BRIGHT_YELLOW
-#define STYLE_TYPE       COLOR_BRIGHT_MAGENTA
-#define STYLE_IDENTIFIER COLOR_BRIGHT_GREEN
-#define STYLE_ERROR      COLOR_RED
-#define STYLE_RESULT     COLOR_BRIGHT_WHITE
-#define STYLE_ERROR_MSG  COLOR_BRIGHT_RED
-
-static uint8_t *load_file(const char *filename, int *plen)
-{
-    FILE *f;
-    uint8_t *buf;
-    int buf_len;
-
-    f = fopen(filename, "rb");
-    if (!f) {
-        perror(filename);
-        exit(1);
-    }
-    fseek(f, 0, SEEK_END);
-    buf_len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    buf = malloc(buf_len + 1);
-    fread(buf, 1, buf_len, f);
-    buf[buf_len] = '\0';
-    fclose(f);
-    if (plen)
-        *plen = buf_len;
-    return buf;
-}
-
 static int js_log_err_flag;
 
-static void js_log_func(void *opaque, const void *buf, size_t buf_len)
+void js_log_func(void *opaque, const void *buf, size_t buf_len)
 {
     fwrite(buf, 1, buf_len, js_log_err_flag ? stderr : stdout);
 }
 
-static void dump_error(JSContext *ctx)
+void dump_error(JSContext *ctx)
 {
     JSValue obj;
     obj = JS_GetException(ctx);
@@ -275,6 +257,10 @@ static void dump_error(JSContext *ctx)
     js_log_err_flag--;
     fprintf(stderr, "%s\n", term_colors[COLOR_NONE]);
 }
+
+#ifdef CONFIG_MQJS_REPL
+
+#include "mqjs_stdlib.h"
 
 static int eval_buf(JSContext *ctx, const char *eval_str, const char *filename, BOOL is_repl, int parse_flags)
 {
@@ -654,7 +640,7 @@ int main(int argc, const char **argv)
                 case 'm':
                     count *= 1024;
                     /* fall thru */
-                case 'k':
+case 'k':
                     count *= 1024;
                     /* fall thru */
                 default:
@@ -772,3 +758,4 @@ int main(int argc, const char **argv)
     free(mem_buf);
     return 1;
 }
+#endif
