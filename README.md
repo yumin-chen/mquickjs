@@ -56,6 +56,21 @@ Then you can run the compiled bytecode as a normal script:
 ./mqjs -b mandelbrot.bin
 ```
 
+## Standalone compiler
+
+`mqjsc` is a compiler that produces a standalone C program binary
+executable that embeds the MQuickJS runtime along with the
+precompiled bytecode of a script. Usage:
+
+```sh
+./mqjsc -o myprog examples/hello.js
+./myprog
+```
+
+The resulting binary only depends on the standard C library and
+libm. It is suitable for deployment on systems without the MQuickJS
+engine installed.
+
 The bytecode format depends on the endianness and word length (32 or
 64 bit) of the CPU. On a 64 bit CPU, it is possible to use the option
 `-m32` to generate 32 bit bytecode that can run on an embedded 32 bit
