@@ -37,6 +37,7 @@
 
 #include "cutils.h"
 #include "mquickjs.h"
+#include "mqjs_runtime.h"
 
 #define JS_CLASS_RECTANGLE (JS_CLASS_USER + 0)
 #define JS_CLASS_FILLED_RECTANGLE (JS_CLASS_USER + 1)
@@ -168,85 +169,11 @@ static JSValue js_filled_rectangle_get_color(JSContext *ctx, JSValue *this_val, 
     return JS_NewInt32(ctx, d->color);
 }
 
-static JSValue js_print(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
-{
-    int i;
-    JSValue v;
-    
-    for(i = 0; i < argc; i++) {
-        if (i != 0)
-            putchar(' ');
-        v = argv[i];
-        if (JS_IsString(ctx, v)) {
-            JSCStringBuf buf;
-            const char *str;
-            size_t len;
-            str = JS_ToCStringLen(ctx, &len, v, &buf);
-            fwrite(str, 1, len, stdout);
-        } else {
-            JS_PrintValueF(ctx, argv[i], JS_DUMP_LONG);
-        }
-    }
-    putchar('\n');
-    return JS_UNDEFINED;
-}
-
-#if defined(__linux__) || defined(__APPLE__)
-static int64_t get_time_ms(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000 + (ts.tv_nsec / 1000000);
-}
-#else
-static int64_t get_time_ms(void)
-{
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (int64_t)tv.tv_sec * 1000 + (tv.tv_usec / 1000);
-}
-#endif
-
-static JSValue js_date_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
-{
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return JS_NewInt64(ctx, (int64_t)tv.tv_sec * 1000 + (tv.tv_usec / 1000));
-}
-
-static JSValue js_performance_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
-{
-    return JS_NewInt64(ctx, get_time_ms());
-}
-
 #include "example_stdlib.h"
 
 static void js_log_func(void *opaque, const void *buf, size_t buf_len)
 {
     fwrite(buf, 1, buf_len, stdout);
-}
-
-static uint8_t *load_file(const char *filename, int *plen)
-{
-    FILE *f;
-    uint8_t *buf;
-    int buf_len;
-
-    f = fopen(filename, "rb");
-    if (!f) {
-        perror(filename);
-        exit(1);
-    }
-    fseek(f, 0, SEEK_END);
-    buf_len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    buf = malloc(buf_len + 1);
-    fread(buf, 1, buf_len, f);
-    buf[buf_len] = '\0';
-    fclose(f);
-    if (plen)
-        *plen = buf_len;
-    return buf;
 }
 
 int main(int argc, const char **argv)
