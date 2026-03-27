@@ -37,6 +37,7 @@ JSValue js_clearTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *ar
 
 void run_timers(JSContext *ctx);
 void dump_error(JSContext *ctx);
+void JS_SetLogErr(int flag);
 void js_log_func(void *opaque, const void *buf, size_t buf_len);
 uint8_t *load_file(const char *filename, int *plen);
 

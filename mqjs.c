@@ -59,7 +59,9 @@ void dump_error_repl(JSContext *ctx)
     JSValue obj;
     obj = JS_GetException(ctx);
     fprintf(stderr, "%s", term_colors[STYLE_ERROR_MSG]);
+    JS_SetLogErr(1);
     JS_PrintValueF(ctx, obj, JS_DUMP_LONG);
+    JS_SetLogErr(0);
     fprintf(stderr, "%s\n", term_colors[COLOR_NONE]);
 }
 

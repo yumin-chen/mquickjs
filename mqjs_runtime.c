@@ -245,6 +245,11 @@ void run_timers(JSContext *ctx)
 
 static int js_log_err_flag;
 
+void JS_SetLogErr(int flag)
+{
+    js_log_err_flag = flag;
+}
+
 void js_log_func(void *opaque, const void *buf, size_t buf_len)
 {
     fwrite(buf, 1, buf_len, js_log_err_flag ? stderr : stdout);
