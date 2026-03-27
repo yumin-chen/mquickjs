@@ -148,6 +148,8 @@ static void compile_file(CompiledBytecode *bc, const char *filename, const char 
         dump_error(ctx);
         exit(1);
     }
+    JSGCRef val_ref;
+    JS_PUSH_VALUE(ctx, val);
 
 #if JSW == 8
     if (force_32bit) {
@@ -172,6 +174,7 @@ static void compile_file(CompiledBytecode *bc, const char *filename, const char 
     memcpy(bc->data, data_buf, data_len);
     bc->len = data_len;
 
+    JS_POP_VALUE(ctx, val);
     JS_FreeContext(ctx);
     free(mem_buf);
 }
@@ -448,5 +451,6 @@ int main(int argc, char **argv)
     }
 
     unlink(c_filename);
+    free(bc.data);
     return 0;
 }
