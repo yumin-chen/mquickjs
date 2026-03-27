@@ -39,7 +39,7 @@
 
 #include "cutils.h"
 #include "mquickjs.h"
-#include "mqjs_runtime.h"
+#include "mqjs.h"
 #include "mqjs_stdlib.h"
 
 static void help(void)
@@ -75,7 +75,7 @@ static const char main_c_template[] =
     "#include <inttypes.h>\n"
     "#include <sys/time.h>\n"
     "#include \"mquickjs.h\"\n"
-    "#include \"mqjs_runtime.h\"\n"
+    "#include \"mqjs.h\"\n"
     "#include \"mqjs_stdlib.h\"\n"
     "\n"
     "static uint8_t mem_buf[%zu];\n"
@@ -285,7 +285,7 @@ int main(int argc, const char **argv)
             args[n++] = "-o";
             args[n++] = out_filename;
             args[n++] = c_filename;
-            args[n++] = "mqjs_runtime.c";
+            args[n++] = "mqjs.c";
             args[n++] = "mquickjs.c";
             args[n++] = "dtoa.c";
             args[n++] = "libm.c";

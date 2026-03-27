@@ -1,5 +1,5 @@
 /*
- * Micro QuickJS runtime
+ * Micro QuickJS shared runtime declarations
  *
  * Copyright (c) 2017-2025 Fabrice Bellard
  * Copyright (c) 2017-2025 Charlie Gordon
@@ -22,10 +22,17 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-#ifndef MQJS_RUNTIME_H
-#define MQJS_RUNTIME_H
+#ifndef MQJS_H
+#define MQJS_H
 
 #include "mquickjs.h"
+
+/* --- Shared Runtime Functions --- */
+
+void JS_SetLogErr(int flag);
+void js_log_func(void *opaque, const void *buf, size_t buf_len);
+void dump_error(JSContext *ctx);
+uint8_t *load_file(const char *filename, int *plen);
 
 JSValue js_print(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
 JSValue js_gc(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
@@ -34,11 +41,6 @@ JSValue js_performance_now(JSContext *ctx, JSValue *this_val, int argc, JSValue 
 JSValue js_load(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
 JSValue js_setTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
 JSValue js_clearTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
-
 void run_timers(JSContext *ctx);
-void dump_error(JSContext *ctx);
-void JS_SetLogErr(int flag);
-void js_log_func(void *opaque, const void *buf, size_t buf_len);
-uint8_t *load_file(const char *filename, int *plen);
 
-#endif /* MQJS_RUNTIME_H */
+#endif /* MQJS_H */
