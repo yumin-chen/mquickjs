@@ -90,6 +90,9 @@ mqjs$(EXE): mqjs.o readline_tty.o readline.o libmquickjs.a
 mqjsc$(EXE): mqjsc.o libmquickjs.a
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
+mqjs_runtime.o: mqjs.c
+	$(CC) $(CFLAGS) -DMQJS_RUNTIME_ONLY -c -o $@ $<
+
 libmquickjs.a: $(MQUICKJS_LIB_OBJS)
 	$(AR) rcs $@ $^
 
