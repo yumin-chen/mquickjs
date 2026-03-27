@@ -64,6 +64,33 @@ system.
 Use the option `--no-column` to remove the column number debug info
 (only line numbers are remaining) if you want to save some storage.
 
+## Compiler
+
+The compiler is `mqjsc`. It can produce a standalone C program binary
+executable that embeds the MicroQuickJS runtime along with
+precompiled bytecode. Usage:
+
+```
+usage: mqjsc [options] [file]
+-h  --help            list options
+-o FILE               set the output executable (default = a.out)
+-c                    only output the C source file
+-m32                  force 32 bit bytecode output
+    --memory-limit n  limit the memory usage of the generated executable to 'n' bytes
+--no-column           no column number in debug information
+```
+
+Compile a script to a standalone executable:
+
+```sh
+./mqjsc -o hello examples/hello.js
+./hello
+```
+
+The generated executable includes its own memory buffer for MicroQuickJS
+allocations. The default is 16 MB. You can change it with the
+`--memory-limit` option at compile time.
+
 ## Stricter mode
 
 MQuickJS only supports a subset of JavaScript (mostly ES5). It is

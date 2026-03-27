@@ -1,5 +1,5 @@
 /*
- * Micro QuickJS REPL
+ * Micro QuickJS runtime and REPL
  *
  * Copyright (c) 2017-2025 Fabrice Bellard
  * Copyright (c) 2017-2025 Charlie Gordon
@@ -34,19 +34,71 @@
 #include <sys/time.h>
 #include <math.h>
 #include <fcntl.h>
+#include <unistd.h>
 
 #include "cutils.h"
-#include "readline_tty.h"
 #include "mquickjs.h"
+#include "mqjs.h"
 
-static uint8_t *load_file(const char *filename, int *plen);
-static void dump_error(JSContext *ctx);
+#ifdef CONFIG_REPL
+#include "readline_tty.h"
+#endif
 
-static JSValue js_print(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+/* --- Shared Runtime Functions --- */
+
+static int js_log_err_flag;
+
+void JS_SetLogErr(int flag)
+{
+    js_log_err_flag = flag;
+}
+
+void js_log_func(void *opaque, const void *buf, size_t buf_len)
+{
+    fwrite(buf, 1, buf_len, js_log_err_flag ? stderr : stdout);
+}
+
+void dump_error(JSContext *ctx)
+{
+    JSValue obj;
+    obj = JS_GetException(ctx);
+    js_log_err_flag++;
+    JS_PrintValueF(ctx, obj, JS_DUMP_LONG);
+    js_log_err_flag--;
+    fprintf(stderr, "\n");
+}
+
+uint8_t *load_file(const char *filename, int *plen)
+{
+    FILE *f;
+    uint8_t *buf;
+    int buf_len;
+
+    f = fopen(filename, "rb");
+    if (!f) {
+        perror(filename);
+        exit(1);
+    }
+    fseek(f, 0, SEEK_END);
+    buf_len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    buf = malloc(buf_len + 1);
+    if (fread(buf, 1, buf_len, f) != (size_t)buf_len) {
+        fprintf(stderr, "could not read file\n");
+        exit(1);
+    }
+    buf[buf_len] = '\0';
+    fclose(f);
+    if (plen)
+        *plen = buf_len;
+    return buf;
+}
+
+JSValue js_print(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     int i;
     JSValue v;
-    
+
     for(i = 0; i < argc; i++) {
         if (i != 0)
             putchar(' ');
@@ -65,7 +117,7 @@ static JSValue js_print(JSContext *ctx, JSValue *this_val, int argc, JSValue *ar
     return JS_UNDEFINED;
 }
 
-static JSValue js_gc(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_gc(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     JS_GC(ctx);
     return JS_UNDEFINED;
@@ -87,27 +139,26 @@ static int64_t get_time_ms(void)
 }
 #endif
 
-static JSValue js_date_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_date_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return JS_NewInt64(ctx, (int64_t)tv.tv_sec * 1000 + (tv.tv_usec / 1000));
 }
 
-static JSValue js_performance_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_performance_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     return JS_NewInt64(ctx, get_time_ms());
 }
 
-/* load a script */
-static JSValue js_load(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_load(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     const char *filename;
     JSCStringBuf buf_str;
     uint8_t *buf;
     int buf_len;
     JSValue ret;
-    
+
     filename = JS_ToCString(ctx, argv[0], &buf_str);
     if (!filename)
         return JS_EXCEPTION;
@@ -118,7 +169,6 @@ static JSValue js_load(JSContext *ctx, JSValue *this_val, int argc, JSValue *arg
     return ret;
 }
 
-/* timers */
 typedef struct {
     BOOL allocated;
     JSGCRef func;
@@ -129,12 +179,12 @@ typedef struct {
 
 static JSTimer js_timer_list[MAX_TIMERS];
 
-static JSValue js_setTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_setTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     JSTimer *th;
     int delay, i;
     JSValue *pfunc;
-    
+
     if (!JS_IsFunction(ctx, argv[0]))
         return JS_ThrowTypeError(ctx, "not a function");
     if (JS_ToInt32(ctx, &delay, argv[1]))
@@ -152,7 +202,7 @@ static JSValue js_setTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValu
     return JS_ThrowInternalError(ctx, "too many timers");
 }
 
-static JSValue js_clearTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+JSValue js_clearTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
     int timer_id;
     JSTimer *th;
@@ -169,7 +219,7 @@ static JSValue js_clearTimeout(JSContext *ctx, JSValue *this_val, int argc, JSVa
     return JS_UNDEFINED;
 }
 
-static void run_timers(JSContext *ctx)
+void run_timers(JSContext *ctx)
 {
     int64_t min_delay, delay, cur_time;
     BOOL has_timer;
@@ -188,15 +238,14 @@ static void run_timers(JSContext *ctx)
                 delay = th->timeout - cur_time;
                 if (delay <= 0) {
                     JSValue ret;
-                    /* the timer expired */
                     if (JS_StackCheck(ctx, 2))
                         goto fail;
-                    JS_PushArg(ctx, th->func.val); /* func name */
-                    JS_PushArg(ctx, JS_NULL); /* this */
-                    
+                    JS_PushArg(ctx, th->func.val);
+                    JS_PushArg(ctx, JS_NULL);
+
                     JS_DeleteGCRef(ctx, &th->func);
                     th->allocated = FALSE;
-                    
+
                     ret = JS_Call(ctx, 0);
                     if (JS_IsException(ret)) {
                     fail:
@@ -220,6 +269,10 @@ static void run_timers(JSContext *ctx)
     }
 }
 
+/* --- REPL Specific Code --- */
+
+#ifdef CONFIG_REPL
+
 #include "mqjs_stdlib.h"
 
 #define STYLE_DEFAULT    COLOR_BRIGHT_GREEN
@@ -235,44 +288,14 @@ static void run_timers(JSContext *ctx)
 #define STYLE_RESULT     COLOR_BRIGHT_WHITE
 #define STYLE_ERROR_MSG  COLOR_BRIGHT_RED
 
-static uint8_t *load_file(const char *filename, int *plen)
-{
-    FILE *f;
-    uint8_t *buf;
-    int buf_len;
-
-    f = fopen(filename, "rb");
-    if (!f) {
-        perror(filename);
-        exit(1);
-    }
-    fseek(f, 0, SEEK_END);
-    buf_len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    buf = malloc(buf_len + 1);
-    fread(buf, 1, buf_len, f);
-    buf[buf_len] = '\0';
-    fclose(f);
-    if (plen)
-        *plen = buf_len;
-    return buf;
-}
-
-static int js_log_err_flag;
-
-static void js_log_func(void *opaque, const void *buf, size_t buf_len)
-{
-    fwrite(buf, 1, buf_len, js_log_err_flag ? stderr : stdout);
-}
-
-static void dump_error(JSContext *ctx)
+void dump_error_repl(JSContext *ctx)
 {
     JSValue obj;
     obj = JS_GetException(ctx);
     fprintf(stderr, "%s", term_colors[STYLE_ERROR_MSG]);
-    js_log_err_flag++;
+    JS_SetLogErr(1);
     JS_PrintValueF(ctx, obj, JS_DUMP_LONG);
-    js_log_err_flag--;
+    JS_SetLogErr(0);
     fprintf(stderr, "%s\n", term_colors[COLOR_NONE]);
 }
 
@@ -291,7 +314,10 @@ static int eval_buf(JSContext *ctx, const char *eval_str, const char *filename, 
     val = JS_Run(ctx, val);
     if (JS_IsException(val)) {
     exception:
-        dump_error(ctx);
+        if (is_repl)
+            dump_error_repl(ctx);
+        else
+            dump_error(ctx);
         return 1;
     } else {
         if (is_repl) {
@@ -324,17 +350,16 @@ static int eval_file(JSContext *ctx, const char *filename,
     if (JS_IsException(val))
         goto exception;
 
-    if (argc > 0) {
+    if (argc > 1) {
         JSValue obj, arr;
         JSGCRef arr_ref, val_ref;
         int i;
         
         JS_PUSH_VALUE(ctx, val);
-        /* must be defined after JS_LoadBytecode() */
-        arr = JS_NewArray(ctx, argc);
+        arr = JS_NewArray(ctx, argc - 1);
         JS_PUSH_VALUE(ctx, arr);
-        for(i = 0; i < argc; i++) {
-            JS_SetPropertyUint32(ctx, arr_ref.val, i,
+        for(i = 1; i < argc; i++) {
+            JS_SetPropertyUint32(ctx, arr_ref.val, i - 1,
                                  JS_NewString(ctx, argv[i]));
         }
         JS_POP_VALUE(ctx, arr);
@@ -342,7 +367,6 @@ static int eval_file(JSContext *ctx, const char *filename,
         JS_SetPropertyStr(ctx, obj, "scriptArgs", arr);
         JS_POP_VALUE(ctx, val);
     }
-    
     
     val = JS_Run(ctx, val);
     if (JS_IsException(val)) {
@@ -374,11 +398,6 @@ static void compile_file(const char *filename, const char *outfilename,
     uint32_t data_len;
     FILE *f;
     
-    /* When compiling to a file, the actual content of the stdlib does
-       not matter because the generated bytecode does not depend on
-       it. We still need it so that the atoms for the parsing are
-       defined. The JSContext must be discarded once the compilation
-       is done. */
     mem_buf = malloc(mem_size);
     ctx = JS_NewContext2(mem_buf, mem_size, &js_stdlib, TRUE);
     JS_SetLogFunc(ctx, js_log_func);
@@ -407,9 +426,6 @@ static void compile_file(const char *filename, const char *outfilename,
         if (dump_memory)
             JS_DumpMemory(ctx, (dump_memory >= 2));
         
-        /* Relocate to zero to have a deterministic
-           output. JS_DumpMemory() cannot work once the heap is relocated,
-           so we relocate after it. */
         JS_RelocateBytecode2(ctx, &hdr_buf.hdr, (uint8_t *)data_buf, data_len, 0, FALSE);
         hdr_len = sizeof(JSBytecodeHeader);
     }
@@ -425,8 +441,6 @@ static void compile_file(const char *filename, const char *outfilename,
     JS_FreeContext(ctx);
     free(mem_buf);
 }
-
-/* repl */
 
 static ReadlineState readline_state;
 static uint8_t readline_cmd_buf[256];
@@ -470,8 +484,6 @@ static BOOL find_keyword(const char *buf, size_t buf_len, const char *dict)
     return FALSE;
 }
 
-/* return the color for the character at position 'pos' and the number
-   of characters of the same color */
 static int term_get_color(int *plen, const char *buf, int pos, int buf_len)
 {
     int c, color, pos1, len;
@@ -602,20 +614,16 @@ int main(int argc, const char **argv)
     force_32bit = FALSE;
     allow_bytecode = FALSE;
     
-    /* cannot use getopt because we want to pass the command line to
-       the script */
     optind = 1;
     while (optind < argc && *argv[optind] == '-') {
         const char *arg = argv[optind] + 1;
         const char *longopt = "";
-        /* a single - is not an option, it also stops argument scanning */
         if (!*arg)
             break;
         optind++;
         if (*arg == '-') {
             longopt = arg + 1;
             arg += strlen(arg);
-            /* -- stops argument scanning */
             if (!*longopt)
                 break;
         }
@@ -650,13 +658,10 @@ int main(int argc, const char **argv)
                 switch (tolower((unsigned char)*p)) {
                 case 'g':
                     count *= 1024;
-                    /* fall thru */
                 case 'm':
                     count *= 1024;
-                    /* fall thru */
                 case 'k':
                     count *= 1024;
-                    /* fall thru */
                 default:
                     mem_size = (size_t)(count);
                     break;
@@ -700,7 +705,6 @@ int main(int argc, const char **argv)
                 continue;
             }
             if (opt == 'm' && !strcmp(arg, "32")) {
-                /* XXX: using a long option is not consistent here */
                 force_32bit = TRUE;
                 arg += strlen(arg);
                 continue;
@@ -772,3 +776,5 @@ int main(int argc, const char **argv)
     free(mem_buf);
     return 1;
 }
+
+#endif /* CONFIG_REPL */
