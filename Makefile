@@ -75,15 +75,23 @@ ifdef CONFIG_ARM32
 MQJS_BUILD_FLAGS=-m32
 endif
 
-PROGS=mqjs$(EXE) example$(EXE)
+PROGS=mqjs$(EXE) example$(EXE) mqjsc$(EXE)
 TEST_PROGS=dtoa_test libm_test 
+LIB=libmquickjs.a
 
-all: $(PROGS)
+all: $(LIB) $(PROGS)
 
-MQJS_OBJS=mqjs.o readline_tty.o readline.o mquickjs.o dtoa.o libm.o cutils.o
+LIB_OBJS=mquickjs.o dtoa.o libm.o cutils.o mqjs_runtime.o readline.o readline_tty.o
+MQJS_OBJS=mqjs.o
 LIBS=-lm
 
-mqjs$(EXE): $(MQJS_OBJS)
+$(LIB): $(LIB_OBJS)
+	$(AR) rcs $@ $^
+
+mqjs$(EXE): $(MQJS_OBJS) $(LIB)
+	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+mqjsc$(EXE): mqjsc.o $(LIB)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 mquickjs.o: mquickjs_atom.h
@@ -102,7 +110,7 @@ mqjs.o: mqjs_stdlib.h
 # C API example
 example.o: example_stdlib.h
 
-example$(EXE): example.o mquickjs.o dtoa.o libm.o cutils.o
+example$(EXE): example.o $(LIB)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 example_stdlib: example_stdlib.host.o mquickjs_build.host.o
