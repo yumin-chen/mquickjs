@@ -1,0 +1,12 @@
+build/
+generated/
+*.o
+*.d
+mquickjs_atom.h
+mqjs_stdlib.h
+example_stdlib.h
+mqjs
+example
+test_builtin.bin
+mqjs_stdlib
+example_stdlib

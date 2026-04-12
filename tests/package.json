@@ -1,0 +1,13 @@
+{
+  "name": "microquickjs-component-tests",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@bytecodealliance/preview2-shim": "^0.4.0",
+    "fast-check": "^3.15.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  }
+}
