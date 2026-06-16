@@ -3684,6 +3684,51 @@ void JS_FreeContext(JSContext *ctx)
     }
 }
 
+size_t JS_GetRootCount(JSContext *ctx)
+{
+    size_t count = 0;
+    JSGCRef *ref;
+    for (ref = ctx->top_gc_ref; ref != NULL; ref = ref->prev)
+        count++;
+    for (ref = ctx->last_gc_ref; ref != NULL; ref = ref->prev)
+        count++;
+    return count;
+}
+
+size_t JS_GetUsedBytes(JSContext *ctx)
+{
+    return (size_t)(ctx->heap_free - ctx->heap_base);
+}
+
+size_t JS_GetFreeBytes(JSContext *ctx)
+{
+    uint8_t *stack_bottom = (uint8_t *)ctx->sp;
+    return (size_t)(stack_bottom - ctx->heap_free);
+}
+
+JS_BOOL JS_VerifyHeap(JSContext *ctx)
+{
+    uint8_t *ptr = ctx->heap_base;
+    uint8_t *heap_free = ctx->heap_free;
+
+    while (ptr < heap_free) {
+        int mtag = ((JSMemBlockHeader *)ptr)->mtag;
+        if (mtag < 0 || mtag >= JS_MTAG_COUNT)
+            abort();
+        int size = get_mblock_size(ptr);
+        if (size <= 0)
+            abort();
+        if (ptr + size > heap_free)
+            abort();
+        ptr += size;
+    }
+
+    if (ptr != heap_free)
+        abort();
+
+    return TRUE;
+}
+
 void JS_SetContextOpaque(JSContext *ctx, void *opaque)
 {
     ctx->opaque = opaque;

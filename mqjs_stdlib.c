@@ -395,6 +395,7 @@ static const JSPropDef js_global_object[] = {
 static const JSPropDef js_c_function_decl[] = {
     /* must come first if "bind" is defined */
     JS_CFUNC_SPECIAL_DEF("bound", 0, generic_params, js_function_bound ),
+    JS_CFUNC_SPECIAL_DEF("rmqjs_callback", 0, generic_params, js_rmqjs_callback ),
 #ifdef CONFIG_CLASS_EXAMPLE
     JS_CFUNC_SPECIAL_DEF("rectangle_closure_test", 0, generic_params, js_rectangle_closure_test ),
 #endif

@@ -383,4 +383,9 @@ void JS_DumpValue(JSContext *ctx, const char *str,
                   JSValue val);
 void JS_DumpMemory(JSContext *ctx, JS_BOOL is_long);
 
+size_t JS_GetRootCount(JSContext *ctx);
+size_t JS_GetUsedBytes(JSContext *ctx);
+size_t JS_GetFreeBytes(JSContext *ctx);
+JS_BOOL JS_VerifyHeap(JSContext *ctx);
+
 #endif /* MQUICKJS_H */
