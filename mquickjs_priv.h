@@ -265,4 +265,10 @@ JSValue js_regexp_get_flags(JSContext *ctx, JSValue *this_val,
 JSValue js_regexp_exec(JSContext *ctx, JSValue *this_val,
                        int argc, JSValue *argv, int is_test);
 
+/* GC diagnostic functions */
+size_t JS_GetRootCount(JSContext *ctx);
+size_t JS_GetUsedBytes(JSContext *ctx);
+size_t JS_GetFreeBytes(JSContext *ctx);
+size_t JS_GetHeapSize(JSContext *ctx);
+
 #endif /* MICROJS_PRIV_H */
