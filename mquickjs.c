@@ -3684,6 +3684,33 @@ void JS_FreeContext(JSContext *ctx)
     }
 }
 
+size_t JS_GetRootCount(JSContext *ctx)
+{
+    size_t count = 0;
+    JSGCRef *ref;
+    for (ref = ctx->top_gc_ref; ref != NULL; ref = ref->prev)
+        count++;
+    for (ref = ctx->last_gc_ref; ref != NULL; ref = ref->prev)
+        count++;
+    return count;
+}
+
+size_t JS_GetUsedBytes(JSContext *ctx)
+{
+    return (size_t)(ctx->heap_free - ctx->heap_base);
+}
+
+size_t JS_GetFreeBytes(JSContext *ctx)
+{
+    uint8_t *stack_bottom = (uint8_t *)ctx->sp;
+    return (size_t)(stack_bottom - ctx->heap_free);
+}
+
+size_t JS_GetHeapSize(JSContext *ctx)
+{
+    return (size_t)(ctx->stack_top - ctx->heap_base);
+}
+
 void JS_SetContextOpaque(JSContext *ctx, void *opaque)
 {
     ctx->opaque = opaque;
