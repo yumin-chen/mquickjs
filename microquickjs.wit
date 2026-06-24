@@ -1,0 +1,41 @@
+package local:microquickjs;
+
+interface engine {
+    resource js-value {
+        is-int:       func() -> bool;
+        is-bool:      func() -> bool;
+        is-null:      func() -> bool;
+        is-undefined: func() -> bool;
+        is-exception: func() -> bool;
+        is-number:    func() -> bool;
+        is-string:    func() -> bool;
+        is-error:     func() -> bool;
+        is-function:  func() -> bool;
+
+        to-string:  func() -> string;
+        to-int32:   func() -> s32;
+        to-float64: func() -> f64;
+
+        get-property: func(name: string) -> js-value;
+        set-property: func(name: string, val: borrow<js-value>);
+
+        call: func(args: list<borrow<js-value>>) -> js-value;
+    }
+
+    new-int32:  func(val: s32)    -> js-value;
+    new-float64: func(val: f64)   -> js-value;
+    new-bool:   func(val: bool)   -> js-value;
+    new-string: func(val: string) -> js-value;
+    new-object: func()            -> js-value;
+    new-array:  func()            -> js-value;
+
+    get-global-object: func() -> js-value;
+
+    /// Evaluate JavaScript code and return the result as a string.
+    /// Returns ok(result) on success, err(message) on syntax or runtime error.
+    eval: func(code: string) -> result<string, string>;
+}
+
+world microquickjs {
+    export engine;
+}

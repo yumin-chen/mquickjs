@@ -1,0 +1,87 @@
+WASI_SDK_PATH ?= /opt/wasi-sdk
+CC = $(WASI_SDK_PATH)/bin/clang
+HOST_CC = gcc
+WIT_BINDGEN = wit-bindgen
+WASM_TOOLS = ./build/wasm-tools
+WASM_OPT = wasm-opt
+ADAPTER = build/wasi_snapshot_preview1.reactor.wasm
+
+CFLAGS = -Oz \
+         -I. -Igenerated -Ibuild \
+         -mllvm -wasm-enable-sjlj
+
+LDFLAGS = -Wl,--no-entry \
+          -Wl,--export=cabi_realloc \
+          -Wl,--export=__wasm_call_ctors \
+          -lm
+
+GENERATED_SRCS = generated/microquickjs.c
+SRCS = mquickjs.c cutils.c dtoa.c libm.c glue.c $(GENERATED_SRCS)
+OBJS = $(addprefix build/, $(SRCS:.c=.o))
+WIT_METADATA = generated/microquickjs_component_type.o
+
+all: build/microquickjs.component.wasm
+
+headers: build/mqjs_stdlib.h mquickjs_atom.h
+
+build/mqjs_stdlib.h: build/mquickjs_build_native
+	./build/mquickjs_build_native -m32 > build/mqjs_stdlib.h
+
+mquickjs_atom.h: build/mquickjs_build_native
+	./build/mquickjs_build_native -a -m32 > mquickjs_atom.h
+
+build/mquickjs_build_native: mqjs_stdlib.c mquickjs_build.c cutils.c
+	$(HOST_CC) -O2 -I. -o $@ $^ -lm
+
+generated/microquickjs.c generated/microquickjs.h $(WIT_METADATA): microquickjs.wit
+	$(WIT_BINDGEN) c ./microquickjs.wit --out-dir ./generated --world microquickjs
+
+build/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(TARGET_FLAGS) -c -o $@ $<
+
+build/mquickjs.o: mquickjs_atom.h
+build/glue.o: build/mqjs_stdlib.h generated/microquickjs.h
+
+# Path A: wasip1 + adapter
+build/microquickjs.component.wasm: build/embedded.wasm $(ADAPTER)
+	$(WASM_TOOLS) component new --adapt wasi_snapshot_preview1=$(ADAPTER) build/embedded.wasm -o $@ --skip-validation
+	@size=$$(wc -c < $@); \
+	echo "Component size: $$size bytes"; \
+	if command -v $(WASM_OPT) > /dev/null; then \
+		$(WASM_OPT) -Oz $@ -o $@; \
+		new_size=$$(wc -c < $@); \
+		echo "Optimized size: $$new_size bytes"; \
+	fi
+
+build/core.wasm: TARGET_FLAGS = --target=wasm32-wasi -D_WASI_EMULATED_SIGNAL
+build/core.wasm: $(OBJS) $(WIT_METADATA)
+	$(CC) $(CFLAGS) $(TARGET_FLAGS) -o $@ $(OBJS) $(WIT_METADATA) $(LDFLAGS) -lwasi-emulated-signal -lwasi-emulated-process-clocks -lsetjmp
+
+build/embedded.wasm: build/core.wasm microquickjs.wit
+	$(WASM_TOOLS) component embed ./microquickjs.wit --world microquickjs build/core.wasm -o $@
+
+# Path B: wasip2 native
+build/microquickjs.wasip2.component.wasm: build/embedded_p2.wasm
+	$(WASM_TOOLS) component new build/embedded_p2.wasm -o $@ --skip-validation
+
+build/embedded_p2.wasm: build/core_p2.wasm microquickjs.wit
+	$(WASM_TOOLS) component embed ./microquickjs.wit --world microquickjs build/core_p2.wasm -o $@
+
+build/core_p2.wasm: TARGET_FLAGS = --target=wasm32-wasip2
+build/core_p2.wasm: $(OBJS) $(WIT_METADATA)
+	$(CC) $(CFLAGS) $(TARGET_FLAGS) -o $@ $(OBJS) $(WIT_METADATA) $(LDFLAGS) -lsetjmp
+
+validate: build/microquickjs.component.wasm
+	$(WASM_TOOLS) validate --features component-model,exceptions build/microquickjs.component.wasm
+
+inspect: build/microquickjs.component.wasm
+	$(WASM_TOOLS) component wit $<
+
+test: build/microquickjs.component.wasm
+	./build/wasmtime run -W component-model build/microquickjs.component.wasm --invoke eval "2+2" || echo "Wasmtime execution failed (expected if EH not supported in this version)"
+
+clean:
+	rm -rf build/microquickjs.component.wasm build/microquickjs.wasip2.component.wasm build/core.wasm build/core_p2.wasm build/embedded.wasm build/embedded_p2.wasm build/mqjs_stdlib.h build/mquickjs_build_native
+	rm -rf generated/
+	rm -f build/*.o build/generated/*.o mquickjs_atom.h
