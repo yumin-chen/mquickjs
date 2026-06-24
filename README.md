@@ -64,6 +64,20 @@ system.
 Use the option `--no-column` to remove the column number debug info
 (only line numbers are remaining) if you want to save some storage.
 
+## Standalone binary compilation
+
+The `mqjsc` tool can produce a standalone C program binary executable
+that embeds the self-contained `mqjs` engine along with precompiled
+bytecode:
+
+```sh
+./mqjsc -o mandelbrot tests/mandelbrot.js
+./mandelbrot
+```
+
+The resulting binary only depends on the standard C library and
+optionally the mathematical library (`-lm`).
+
 ## Stricter mode
 
 MQuickJS only supports a subset of JavaScript (mostly ES5). It is
